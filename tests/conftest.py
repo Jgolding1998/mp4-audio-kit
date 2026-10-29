@@ -49,6 +49,10 @@ def media(tmp_path_factory):
             str(d / "jump.mp4"))
     _ffmpeg("-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100:duration=50", "-ac", "1",
             "-c:a", "aac", "-b:a", "24k", str(d / "lowrate.mp4"))
+    _ffmpeg("-f", "lavfi", "-i", "color=c=blue:s=160x120:r=10:d=8", "-itsoffset", "3",
+            "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100:duration=5",
+            "-map", "0:v", "-map", "1:a", "-c:v", "mpeg4", "-c:a", "aac", str(d / "leading.mp4"))
+    _ffmpeg("-i", str(d / "leading.mp4"), "-c", "copy", "-output_ts_offset", "2", str(d / "offset.mp4"))
     data = (d / "tone.mp4").read_bytes()
     (d / "truncated.mp4").write_bytes(data[: len(data) // 3])
     (d / "notes.mp4").write_bytes(b"just some text, not a video\n" * 10)

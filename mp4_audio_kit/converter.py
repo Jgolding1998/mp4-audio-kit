@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import secrets
 import shutil
@@ -125,7 +126,7 @@ def check_upload(filename: Optional[str], content_type: Optional[str], head: byt
 def probe_argv(tools: Tools, path: Path, forced: bool = True) -> list:
     opts = _INPUT_OPTS if forced else ["-protocol_whitelist", "file", "-f", "mp3"]
     return [*tools.ffprobe, "-hide_banner", "-loglevel", "error", "-max_alloc", MAX_ALLOC, *opts,
-            "-show_entries", "format=format_name,duration:stream=codec_type,codec_name,channels,duration",
+            "-show_entries", "format=format_name,duration,start_time:stream=codec_type,codec_name,channels,duration,start_time",
             "-of", "json", "-i", f"file:{path}"]
 
 
@@ -134,7 +135,7 @@ def convert_argv(tools: Tools, src: Path, dst: Path, limits: Limits, channels: i
             "-max_alloc", MAX_ALLOC, *_INPUT_OPTS, "-i", f"file:{src}",
             "-map", "0:a:0", "-vn", "-sn", "-dn",
             "-map_metadata", "-1", "-map_chapters", "-1", "-fflags", "+bitexact", "-flags:a", "+bitexact",
-            "-af", "aresample=async=1", "-c:a", "libmp3lame", "-b:a", BITRATE]
+            "-af", "aresample=async=1:first_pts=0", "-c:a", "libmp3lame", "-b:a", BITRATE]
     if channels > 2:
         argv += ["-ac", "2"]
     return argv + ["-t", str(limits.max_duration), "-fs", str(output_bound(limits)),
@@ -173,6 +174,14 @@ def _seconds(value) -> float:
     return number if number == number and number > 0 else 0.0  # rejects NaN
 
 
+def _timestamp(value) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return number if math.isfinite(number) else 0.0
+
+
 def convert(tools: Tools, src: Path, limits: Limits, cancel: threading.Event) -> tuple[Path, float]:
     """Convert src (in its own job folder) to an MP3 next to it. Returns (path, seconds)."""
     info = _probe(tools, src, limits, cancel)
@@ -182,7 +191,11 @@ def convert(tools: Tools, src: Path, limits: Limits, cancel: threading.Event) ->
     audio = [s for s in info.get("streams") or [] if isinstance(s, dict) and s.get("codec_type") == "audio"]
     if not audio:
         raise ConvertError("no_audio")
-    seconds = _seconds(audio[0].get("duration")) or _seconds(fmt.get("duration"))
+    duration = _seconds(audio[0].get("duration"))
+    # FFmpeg rebases timestamps to the file's start. Preserve a selected
+    # track's later start as silence, without padding a whole-file offset.
+    leading = max(0.0, _timestamp(audio[0].get("start_time")) - _timestamp(fmt.get("start_time")))
+    seconds = duration + leading if duration > 0 else _seconds(fmt.get("duration"))
     if seconds <= 0:
         raise ConvertError("unreadable")
     if seconds > limits.max_duration:

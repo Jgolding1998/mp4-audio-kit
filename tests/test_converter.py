@@ -79,7 +79,7 @@ def test_argv_is_fixed_and_locked_down():
     assert "-nostdin" in argv and argv[-2:] == ["-n", f"file:{dst}"]
     for opt, val in (("-map_metadata", "-1"), ("-map_chapters", "-1"), ("-c:a", "libmp3lame"), ("-b:a", "192k"),
                      ("-id3v2_version", "0"), ("-write_id3v1", "0"), ("-ac", "2"), ("-map", "0:a:0"),
-                     ("-af", "aresample=async=1"), ("-t", "21600"), ("-fs", str(21601 * 24_000))):
+                     ("-af", "aresample=async=1:first_pts=0"), ("-t", "21600"), ("-fs", str(21601 * 24_000))):
         assert argv[argv.index(opt) + 1] == val
     tiny = convert_argv(tools, src, dst, Limits(max_file_bytes=1024, max_duration=60), 2)
     assert tiny[tiny.index("-fs") + 1] == str(61 * 24_000)
