@@ -2,9 +2,11 @@
 
 MP4 Audio Kit is a local, single-user app. It is meant to be safe to leave running while you browse other sites, and to run FFmpeg on untrusted MP4 files with as little reach as practical. It is not an operating-system sandbox.
 
-## Reporting
+## Reporting a vulnerability
 
-Please use GitHub's private vulnerability reporting on this repository if it is enabled. Otherwise open an issue that describes the problem without exploit details, or use the [feedback form](https://github.com/Jgolding1998/Jgolding1998/issues/new?template=feedback.yml).
+Use [Security > Report a vulnerability](https://github.com/Jgolding1998/mp4-audio-kit/security/advisories/new) to send a private report. Do not submit vulnerability details through the public feedback form.
+
+Include the affected version, platform, expected behavior and a synthetic reproduction. Leave out credentials, personal information and private files.
 
 ## Controls
 
