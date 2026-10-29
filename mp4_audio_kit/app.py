@@ -134,7 +134,7 @@ def create_app(*, port: int, tools: Tools, limits: Limits | None = None, root: P
         if uploads["active"] >= limits.max_uploads:
             return _error("busy")
         reservation = conversion_reservation(length, limits)
-        if not store.reserve(reservation):
+        if not store.reserve(reservation, item_slot=True):
             return _error("disk_full")
         uploads["active"] += 1
         job_dir = None
@@ -158,8 +158,11 @@ def create_app(*, port: int, tools: Tools, limits: Limits | None = None, root: P
                     return _error("bad_upload")
                 name = display_name(upload.filename)
                 src = job_dir / "input.mp4"
-                head = await run_cancellable(request, lambda: _copy_upload(upload, src, limits.max_file_bytes, cancel), cancel)
-                check_upload(upload.filename, upload.content_type, head)
+                def copy_input():
+                    upload.file.seek(0)
+                    check_upload(upload.filename, upload.content_type, upload.file.read(64))
+                    return _copy_upload(upload, src, limits.max_file_bytes, cancel)
+                await run_cancellable(request, copy_input, cancel)
             finally:
                 with anyio.CancelScope(shield=True):
                     await form.close()
@@ -192,7 +195,7 @@ def create_app(*, port: int, tools: Tools, limits: Limits | None = None, root: P
         finally:
             uploads["active"] -= 1
             active_cancels.discard(cancel)
-            store.release(reservation)
+            store.release(reservation, item_slot=True)
             if job_dir is not None and not keep:
                 shutil.rmtree(job_dir, ignore_errors=True)
 
@@ -260,9 +263,15 @@ def create_app(*, port: int, tools: Tools, limits: Limits | None = None, root: P
         async def sweeper():
             while True:
                 await anyio.sleep(60)
-                await anyio.to_thread.run_sync(store.sweep)
+                try:
+                    await anyio.to_thread.run_sync(store.sweep)
+                except OSError:
+                    pass
                 if owned:
-                    runtime.touch(root)
+                    try:
+                        runtime.touch(root)
+                    except OSError:
+                        pass
 
         try:
             async with anyio.create_task_group() as tg:

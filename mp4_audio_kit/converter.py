@@ -278,6 +278,7 @@ class Store:
         self._lock = threading.Lock()
         self._items: dict[str, Item] = {}
         self._reserved = 0
+        self._pending_items = 0
         self._pins: dict[str, int] = {}
         self._removed: set[str] = set()
         self._deleting: set[str] = set()
@@ -288,17 +289,21 @@ class Store:
         path.mkdir(mode=0o700)
         return path
 
-    def reserve(self, nbytes: int) -> bool:
+    def reserve(self, nbytes: int, *, item_slot: bool = False) -> bool:
         with self._lock:
             used = sum(i.size for i in self._items.values()) + self._reserved
-            if used + nbytes > self.limits.max_disk_bytes or len(self._items) >= self.limits.max_items:
+            if used + nbytes > self.limits.max_disk_bytes or len(self._items) + (self._pending_items if item_slot else 0) >= self.limits.max_items:
                 return False
             self._reserved += nbytes
+            if item_slot:
+                self._pending_items += 1
             return True
 
-    def release(self, nbytes: int) -> None:
+    def release(self, nbytes: int, *, item_slot: bool = False) -> None:
         with self._lock:
             self._reserved = max(0, self._reserved - nbytes)
+            if item_slot:
+                self._pending_items = max(0, self._pending_items - 1)
 
     def add(self, item: Item, cancel: Callable[[], bool] = lambda: False) -> None:
         item.created = time.monotonic()
@@ -384,7 +389,7 @@ class Store:
             names = unique_names([i.name for i in items])
             total = sum(i.path.stat().st_size for i in items)
             total += 4096 + sum(256 + 2 * len(name.encode("utf-8")) for name in names)
-            if not self.reserve(total):
+            if not self.reserve(total, item_slot=True):
                 raise ConvertError("disk_full")
             reserved = total
             job_dir = self.new_dir()
@@ -411,7 +416,7 @@ class Store:
                 shutil.rmtree(job_dir, ignore_errors=True)
             raise
         finally:
-            self.release(reserved)
+            self.release(reserved, item_slot=reserved > 0)
             self.unpin(items)
             self._zip_slot.release()
 
