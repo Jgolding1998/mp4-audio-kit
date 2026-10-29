@@ -7,6 +7,7 @@ Linux prlimit). This is containment for runaway work, not an OS sandbox.
 
 from __future__ import annotations
 
+import math
 import os
 import subprocess
 import sys
@@ -16,6 +17,13 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 
 POLL_SECONDS = 0.1
+_WINDOWS_GATE = (
+    "import os,subprocess,sys\n"
+    "if sys.stdin.buffer.readline(32) != (str(os.getpid())+'\\n').encode('ascii'): raise SystemExit(125)\n"
+    "code=subprocess.call(sys.argv[1:],stdin=subprocess.DEVNULL,"
+    "shell=False,close_fds=True,creationflags=subprocess.CREATE_NO_WINDOW)\n"
+    "os._exit(code if code < 2**31 else code-2**32)\n"
+)
 
 
 @dataclass
@@ -163,32 +171,62 @@ def run_bounded(
     """Run argv (no shell, no stdin) and stop it on deadline, cancel or watcher reason."""
     if not isinstance(argv, list) or not argv or not all(isinstance(a, str) for a in argv):
         raise ValueError("argv must be a non-empty list of strings")
+    try:
+        valid_timeout = isinstance(timeout, (int, float)) and not isinstance(timeout, bool) and math.isfinite(timeout)
+    except OverflowError:
+        valid_timeout = False
+    if not valid_timeout:
+        raise ValueError("timeout must be a finite number")
+    deadline = time.monotonic() + timeout
+
+    def stop_reason():
+        if cancel is not None and cancel.is_set():
+            return "cancelled"
+        return "timeout" if time.monotonic() >= deadline else None
+
+    stopped = stop_reason()
+    if stopped:
+        return RunResult(None, b"", b"", stopped)
     kwargs: dict = {}
+    child_argv = argv
     if os.name == "nt":
         kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
+        # A venv launcher can start a child before assignment, so the gate uses the base interpreter.
+        base = getattr(sys, "_base_executable", None) or sys.executable
+        child_argv = [base, "-I", "-S", "-c", _WINDOWS_GATE, *argv]
     else:
         kwargs["start_new_session"] = True
 
     job = None
     if os.name == "nt":
-        job = _WindowsJob(memory_bytes, max_processes)
+        job = _WindowsJob(memory_bytes, max_processes + 1)  # one dedicated gate slot
     try:
         proc = subprocess.Popen(
-            argv, cwd=cwd, env=env, shell=False, close_fds=True,
-            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kwargs,
+            child_argv, cwd=cwd, env=env, shell=False, close_fds=True,
+            stdin=subprocess.PIPE if job is not None else subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kwargs,
         )
     except BaseException:
         if job:
             job.close()
         raise
+    out = err = None
     try:
-        if job is not None:
-            try:
-                job.assign(proc.pid)
-            except OSError:
-                _kill_tree(proc, None)
-                raise
-        elif memory_bytes and sys.platform.startswith("linux"):
+        out = _Capture(proc.stdout, max_output, on_stdout_line)
+        err = _Capture(proc.stderr, max_output)
+        out.start()
+        err.start()
+        stopped = stop_reason()
+        if job is not None and not stopped:
+            job.assign(proc.pid)
+            stopped = stop_reason()
+            if not stopped:
+                try:
+                    proc.stdin.write((str(proc.pid) + "\n").encode("ascii"))
+                    proc.stdin.close()
+                except OSError:
+                    pass  # a helper that already exited still has a return code to collect
+        elif job is None and memory_bytes and sys.platform.startswith("linux"):
             import resource
 
             try:
@@ -197,19 +235,11 @@ def run_bounded(
             except (OSError, ValueError):
                 pass
 
-        out = _Capture(proc.stdout, max_output, on_stdout_line)
-        err = _Capture(proc.stderr, max_output)
-        out.start()
-        err.start()
-
-        deadline = time.monotonic() + timeout
-        stopped = None
+        if stopped:
+            _kill_tree(proc, job)
         while proc.poll() is None:
-            if time.monotonic() >= deadline:
-                stopped = "timeout"
-            elif cancel is not None and cancel.is_set():
-                stopped = "cancelled"
-            elif watch is not None:
+            stopped = stop_reason()
+            if not stopped and watch is not None:
                 stopped = watch()
             if stopped:
                 _kill_tree(proc, job)
@@ -226,7 +256,22 @@ def run_bounded(
         err.join(timeout=5)
         return RunResult(proc.returncode, bytes(out.data), bytes(err.data), stopped)
     finally:
-        if proc.poll() is None:
-            _kill_tree(proc, job)
-        if job is not None:
-            job.close()
+        try:
+            if job is not None or proc.poll() is None:
+                _kill_tree(proc, job)
+            if proc.stdin is not None:
+                try:
+                    proc.stdin.close()
+                except OSError:
+                    pass
+            proc.wait(timeout=10)
+        finally:
+            try:
+                for capture, pipe in ((out, proc.stdout), (err, proc.stderr)):
+                    if capture is not None and capture.ident is not None:
+                        capture.join(timeout=5)
+                    else:
+                        pipe.close()
+            finally:
+                if job is not None:
+                    job.close()

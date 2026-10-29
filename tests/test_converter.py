@@ -12,8 +12,10 @@ import pytest
 
 from conftest import TOOLS, decode_pcm, ffprobe_json, needs_ffmpeg, slow_tools
 from mp4_audio_kit.converter import (
-    ConvertError, Item, Limits, Store, check_upload, convert, convert_argv, display_name, probe_argv, unique_names,
+    ConvertError, Item, Limits, Store, check_upload, child_env, conversion_reservation, convert, convert_argv,
+    display_name, output_bound, probe_argv, unique_names,
 )
+from mp4_audio_kit.procguard import run_bounded
 
 GOOD_HEAD = b"\x00\x00\x00\x20ftypisom\x00\x00\x02\x00"
 
@@ -76,8 +78,11 @@ def test_argv_is_fixed_and_locked_down():
     argv = convert_argv(tools, src, dst, Limits(), 6)
     assert "-nostdin" in argv and argv[-2:] == ["-n", f"file:{dst}"]
     for opt, val in (("-map_metadata", "-1"), ("-map_chapters", "-1"), ("-c:a", "libmp3lame"), ("-b:a", "192k"),
-                     ("-id3v2_version", "0"), ("-write_id3v1", "0"), ("-ac", "2"), ("-map", "0:a:0")):
+                     ("-id3v2_version", "0"), ("-write_id3v1", "0"), ("-ac", "2"), ("-map", "0:a:0"),
+                     ("-af", "aresample=async=1"), ("-t", "21600"), ("-fs", str(21601 * 24_000))):
         assert argv[argv.index(opt) + 1] == val
+    tiny = convert_argv(tools, src, dst, Limits(max_file_bytes=1024, max_duration=60), 2)
+    assert tiny[tiny.index("-fs") + 1] == str(61 * 24_000)
     assert "-ac" not in convert_argv(tools, src, dst, Limits(), 2)
 
 
@@ -125,6 +130,61 @@ def test_surround_is_downmixed(media, tmp_path):
     assert info["streams"][0]["channels"] == 2 and abs(seconds - 2.0) < 0.15
     freq, _ = _frequency(decode_pcm(out))
     assert abs(freq - 1000) < 10
+
+
+def _window(pcm, start, end, rate=44100):
+    return pcm[int(start * rate) * 2: int(end * rate) * 2]
+
+
+@needs_ffmpeg
+def test_audio_timestamp_gap_becomes_silence(media, tmp_path):
+    out, seconds = convert(TOOLS, _job(tmp_path, media / "gap.mp4"), Limits(), threading.Event())
+    assert abs(float(ffprobe_json(out)["format"]["duration"]) - 10.0) < 0.15 and abs(seconds - 10.0) < 0.15
+    pcm = decode_pcm(out)
+    gap_start = 101 * 1024 / 44100
+    _, quiet = _frequency(_window(pcm, gap_start + 0.2, gap_start + 3.8))
+    assert quiet < 30
+    for start, end in ((0.2, gap_start - 0.1), (gap_start + 4.1, 9.9)):
+        freq, rms = _frequency(_window(pcm, start, end))
+        assert abs(freq - 440) < 5 and rms > 1000
+
+
+@needs_ffmpeg
+def test_timestamp_jump_stays_inside_duration_and_size_limits(media, tmp_path):
+    src = _job(tmp_path, media / "jump.mp4")
+    with pytest.raises(ConvertError) as err:
+        convert(TOOLS, src, Limits(), threading.Event())
+    assert err.value.code == "too_long"
+    limits = Limits(max_duration=20)
+    dst = src.with_name("capped.mp3")
+    result = run_bounded(convert_argv(TOOLS, src, dst, limits, 1), cwd=str(src.parent), env=child_env(src.parent),
+                         timeout=60, memory_bytes=limits.memory_bytes, max_processes=1)
+    assert result.returncode == 0 and not result.stopped
+    assert float(ffprobe_json(dst)["format"]["duration"]) <= 20.1
+    assert dst.stat().st_size <= output_bound(limits)
+
+
+@needs_ffmpeg
+def test_mp3_may_exceed_upload_limit(media, tmp_path):
+    limits = Limits(max_file_bytes=1024**2, max_duration=60)
+    src = _job(tmp_path, media / "lowrate.mp4")
+    size_in = src.stat().st_size
+    assert size_in < limits.max_file_bytes
+    out, seconds = convert(TOOLS, src, limits, threading.Event())
+    size_out = out.stat().st_size
+    assert abs(seconds - 50.0) < 0.15 and limits.max_file_bytes < size_out <= output_bound(limits)
+    assert conversion_reservation(size_in, limits) >= size_in + size_out
+    freq, rms = _frequency(decode_pcm(out))
+    assert abs(freq - 440) < 5 and rms > 1000
+
+
+def test_reservation_covers_output_bound_even_with_tiny_upload_limit(tmp_path):
+    limits = Limits(max_file_bytes=1024, max_duration=3600, max_disk_bytes=100 * 1024**2)
+    assert output_bound(limits) == 3601 * 24_000
+    assert conversion_reservation(1000, limits) >= 1000 + output_bound(limits) + 64 * 1024
+    store = Store(tmp_path / "rt", limits)
+    assert store.reserve(conversion_reservation(1000, limits))
+    assert not store.reserve(conversion_reservation(1000, limits))
 
 
 @needs_ffmpeg

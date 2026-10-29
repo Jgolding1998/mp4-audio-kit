@@ -7,11 +7,13 @@
   const list = document.getElementById("list");
   const actions = document.getElementById("actions");
   const zipBtn = document.getElementById("zip");
+  const clearBtn = document.getElementById("clear");
   const noteEl = document.getElementById("note");
   const PARALLEL = 2;
   const MAX_FILES = 50;
   let entries = [];
   let running = 0;
+  let clearing = false;
   let generation = 0;  // bumped by Clear so late replies cannot touch the new list
 
   function note(text) {
@@ -40,9 +42,9 @@
   }
 
   function refresh() {
-    actions.hidden = entries.length === 0;
+    actions.hidden = entries.length === 0 && !clearing;
     const done = entries.filter((e) => e.state === "done");
-    zipBtn.hidden = done.length < 2;
+    zipBtn.hidden = done.length < 2 || clearing;
     zipBtn.textContent = "Download all " + done.length + " (ZIP)";
   }
 
@@ -70,6 +72,7 @@
   }
 
   function pump() {
+    if (clearing) return;
     while (running < PARALLEL) {
       const next = entries.find((e) => e.state === "waiting");
       if (!next) return;
@@ -150,17 +153,38 @@
     }
   });
 
-  document.getElementById("clear").addEventListener("click", async () => {
-    generation++;
-    for (const e of entries) {
-      e.state = "removed";
-      if (e.xhr) e.xhr.abort();
+  clearBtn.addEventListener("click", async () => {
+    if (clearBtn.disabled) return;
+    const retrying = clearing;
+    clearing = true;
+    clearBtn.disabled = true;
+    clearBtn.textContent = "Clearing...";
+    if (!retrying) {
+      generation++;
+      for (const e of entries) {
+        e.state = "removed";
+        if (e.xhr) e.xhr.abort();
+      }
+      entries = [];
+      list.replaceChildren();
     }
-    entries = [];
     note("");
-    list.replaceChildren();
     refresh();
-    try { await post("/api/clear", {}); } catch (e) { /* app may be closed */ }
+    try {
+      const { ok, data } = await post("/api/clear", {});
+      if (ok) {
+        clearing = false;
+      } else {
+        note(data.message || "Could not clear previous files. Press Clear list to retry.");
+      }
+    } catch (e) {
+      note("Could not clear previous files. Press Clear list to retry.");
+    } finally {
+      clearBtn.disabled = false;
+      clearBtn.textContent = "Clear list";
+      refresh();
+      pump();
+    }
   });
 
   document.getElementById("pick").addEventListener("click", () => picker.click());

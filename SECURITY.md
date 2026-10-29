@@ -30,7 +30,7 @@ FFmpeg
 - Input: `-protocol_whitelist file -f mov -enable_drefs 0 -use_absolute_path 0`, opened as `file:<fixed path>`. No network protocols, no other demuxers, no external track references.
 - Output: first audio track only, `libmp3lame` at 192k, `-map_metadata -1 -map_chapters -1`, no ID3v1 or ID3v2, bit-exact flags, `-t` and `-fs` limits, `-n` (never overwrite), `-max_alloc` 512 MB.
 - The MP3 is written to a temporary name, verified with ffprobe (codec `mp3`, duration within 1 second or 2% of the source, whichever is larger), then renamed atomically.
-- Each encoder process has a 20-minute wall-clock timeout; each probe has 30 seconds. Waiting for a conversion slot can be cancelled. On Windows the process runs in a Job Object with a memory cap, a single-process limit and kill-on-close. On Linux an address-space limit is applied after start. On macOS only the time, size and allocation limits apply.
+- Each encoder process has a 20-minute wall-clock timeout; each probe has 30 seconds. Waiting for a conversion slot can be cancelled. On Windows an isolated Python helper waits for Job Object assignment and verifies its process ID before starting FFmpeg or ffprobe. The helper shares the memory cap and occupies its own process slot; each tool still has a single-process limit and kill-on-close. On Linux an address-space limit is applied after start. On macOS only the time, size and allocation limits apply.
 
 ZIP
 
@@ -42,7 +42,7 @@ Supply chain
 
 ## Known limits
 
-- This is process containment, not a sandbox: FFmpeg runs as your user. A bug in FFmpeg's MP4 or audio decoders could still be exploited by a crafted file. Keep FFmpeg updated.
+- This is process containment, not a sandbox: FFmpeg runs as your user. Reading stream information can also parse video headers, even when the output is audio only. A bug in FFmpeg's demuxer or decoders could still be exploited by a crafted file. Use a maintained, patched build from a distributor linked on the [official download page](https://ffmpeg.org/download.html).
 - Starlette buffers uploads larger than 1 MB in the system temp folder while the request is parsed, before they are copied into the app's own folder. That buffer is closed and deleted when the request ends.
-- On Windows, a child process could start before it is added to the Job Object (a few milliseconds).
+- Process creation and Job Object assignment are operating-system calls that cannot be interrupted by the app's deadline. Cancellation and timeout are checked before releasing a Windows tool from its startup gate.
 - Any local program running as your user can reach the loopback port. The CSRF token stops web pages, not local software.

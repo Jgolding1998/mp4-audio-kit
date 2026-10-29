@@ -7,7 +7,7 @@ Conversion is done by [FFmpeg](https://ffmpeg.org/) on your machine.
 ## Requirements
 
 - Python 3.11 or newer.
-- FFmpeg and ffprobe on `PATH`, built with `libmp3lame` (most builds include it).
+- FFmpeg and ffprobe on `PATH`, built with `libmp3lame` (most builds include it). Use a current, patched build from a distributor linked on the [official download page](https://ffmpeg.org/download.html).
   - Windows: `winget install Gyan.FFmpeg`
   - macOS: `brew install ffmpeg`
   - Debian or Ubuntu: `sudo apt install ffmpeg`
@@ -48,10 +48,12 @@ Options (all optional):
 ## What you get
 
 - One MP3 per video: the first audio track, MP3 (LAME) at 192 kbit/s constant bitrate. More than two channels are mixed down to stereo.
+- Gaps in the audio timestamps become silence, so recordings keep their timing. An MP3 can be larger than its input; `--max-mb` limits uploads, while output space is reserved from the duration limit and fixed bitrate.
 - No tags: titles, artist, chapters and other metadata are not copied, and no ID3 tag is written.
 - Download names come from the original file name, made safe. In a ZIP, repeated names become `name (2).mp3`, `name (3).mp3` and so on.
 - Files that fail (not an MP4, damaged, no audio, too large, too long) show a short reason. Other files in the same batch carry on.
 - Up to 50 files per browser batch, 200 retained results per app session, and one ZIP build at a time. Clear the list before starting another batch.
+- Files added while **Clear list** finishes stay queued until the server confirms the clear. If it fails, press **Clear list** to retry.
 
 ## How it works
 

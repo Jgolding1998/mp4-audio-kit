@@ -17,6 +17,7 @@ from .names import safe_stem
 from .procguard import run_bounded
 
 BITRATE = "192k"
+BYTES_PER_SECOND = 192_000 // 8
 UPLOAD_EXTS = (".mp4", ".m4v")
 UPLOAD_TYPES = {"video/mp4", "video/x-m4v", "application/octet-stream"}
 MAX_ALLOC = str(512 * 1024 * 1024)
@@ -117,16 +118,20 @@ def convert_argv(tools: Tools, src: Path, dst: Path, limits: Limits, channels: i
             "-max_alloc", MAX_ALLOC, *_INPUT_OPTS, "-i", f"file:{src}",
             "-map", "0:a:0", "-vn", "-sn", "-dn",
             "-map_metadata", "-1", "-map_chapters", "-1", "-fflags", "+bitexact", "-flags:a", "+bitexact",
-            "-c:a", "libmp3lame", "-b:a", BITRATE]
+            "-af", "aresample=async=1", "-c:a", "libmp3lame", "-b:a", BITRATE]
     if channels > 2:
         argv += ["-ac", "2"]
-    return argv + ["-t", str(limits.max_duration), "-fs", str(limits.max_file_bytes),
+    return argv + ["-t", str(limits.max_duration), "-fs", str(output_bound(limits)),
                    "-id3v2_version", "0", "-write_id3v1", "0", "-f", "mp3", "-n", f"file:{dst}"]
 
 
+def output_bound(limits: Limits) -> int:
+    """MP3 size cap passed to FFmpeg, with one second of bitrate headroom."""
+    return (limits.max_duration + 1) * BYTES_PER_SECOND
+
+
 def conversion_reservation(length: int, limits: Limits) -> int:
-    output = min(limits.max_file_bytes, (limits.max_duration + 1) * 24_000)
-    return length + output + 64 * 1024
+    return length + output_bound(limits) + 64 * 1024
 
 
 def _probe(tools: Tools, path: Path, limits: Limits, cancel, forced=True) -> dict:

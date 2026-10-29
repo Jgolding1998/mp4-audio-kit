@@ -100,16 +100,17 @@ async function waitForServer(server) {
     await single.saveAs(path.join(OUT, "song.mp3"));
     check(fs.readFileSync(path.join(OUT, "song.mp3"))[0] === 0xff, "single download is MP3 data");
 
-    // Drag and drop one more file.
+    // Drag and drop several files in one batch.
     const b64 = fs.readFileSync(path.join(FIX, "dropped.mp4")).toString("base64");
     await page.evaluate((data) => {
       const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
       const dt = new DataTransfer();
       dt.items.add(new File([bytes], "dropped.mp4", { type: "video/mp4" }));
+      dt.items.add(new File([bytes], "dropped-two.mp4", { type: "video/mp4" }));
       document.getElementById("drop").dispatchEvent(new DragEvent("drop", { dataTransfer: dt, bubbles: true, cancelable: true }));
     }, b64);
-    await page.waitForFunction(() => document.querySelectorAll("#list li.ok").length === 3, null, { timeout: 60000 });
-    check(true, "drag and drop converts");
+    await page.waitForFunction(() => document.querySelectorAll("#list li.ok").length === 4, null, { timeout: 60000 });
+    check(true, "drag and drop converts multiple files");
     await page.screenshot({ path: path.join(OUT, "mp4-batch.png"), fullPage: true });
 
     const [zip] = await Promise.all([page.waitForEvent("download"), page.click("#zip")]);
@@ -118,8 +119,8 @@ async function waitForServer(server) {
     await zip.saveAs(zipPath);
     const listing = execFileSync(process.env.PYTHON || "python", ["-I", "-c",
       "import sys, zipfile; print('|'.join(zipfile.ZipFile(sys.argv[1]).namelist()))", zipPath]).toString().trim();
-    check(listing === "song.mp3|song (2).mp3|dropped.mp3", "ZIP entries are unique: " + listing);
-    check(await page.textContent("#zip") === "Download all 3 (ZIP)", "ZIP button label is current after a ZIP");
+    check(listing === "song.mp3|song (2).mp3|dropped.mp3|dropped-two.mp3", "ZIP entries are unique: " + listing);
+    check(await page.textContent("#zip") === "Download all 4 (ZIP)", "ZIP button label is current after a ZIP");
 
     // Results expire on the server (as after 30 minutes); an old link must not replace the page.
     await page.evaluate(async () => {
@@ -133,10 +134,65 @@ async function waitForServer(server) {
     check(page.url() === pageUrl && await page.locator("#list li").count() === rowCount, "expired link keeps the page and list");
 
     await page.click("#clear");
+    await page.waitForFunction(() => document.getElementById("actions").hidden);
     check(await page.locator("#list li").count() === 0 && !(await page.isVisible("#actions")), "clear list");
     for (let i = 0; i < 60 && fs.readdirSync(path.join(OUT, "runtime")).length; i++) await new Promise((resolve) => setTimeout(resolve, 50));
     const left = fs.readdirSync(path.join(OUT, "runtime"));
     check(left.length === 0, "server folder emptied by clear");
+
+    await page.setInputFiles("#files", path.join(FIX, "song.mp4"));
+    await page.waitForFunction(() => document.querySelectorAll("#list li.ok").length === 1);
+    let releaseClear;
+    const clearGate = new Promise((resolve) => { releaseClear = resolve; });
+    let clearArrived;
+    const clearStarted = new Promise((resolve) => { clearArrived = resolve; });
+    let clearContinued;
+    const clearReleased = new Promise((resolve) => { clearContinued = resolve; });
+    const delayClear = async (route) => { clearArrived(); await clearGate; await route.continue(); clearContinued(); };
+    await page.route(BASE + "/api/clear", delayClear);
+    try {
+      await page.click("#clear");
+      await clearStarted;
+      const beforeQueued = conversionRequests;
+      await page.setInputFiles("#files", path.join(FIX, "dropped.mp4"));
+      await page.waitForTimeout(400);
+      check(conversionRequests === beforeQueued, "new files wait for the preceding clear acknowledgement");
+      check(await page.textContent("#list li .state") === "Waiting...", "queued files stay visible while clearing");
+    } finally {
+      releaseClear();
+      await clearReleased;
+      await page.unroute(BASE + "/api/clear", delayClear);
+    }
+    await page.waitForFunction(() => document.querySelectorAll("#list li.ok").length === 1);
+    const freshLink = await page.getAttribute("#list li a", "href");
+    check((await context.request.get(BASE + freshLink)).status() === 200, "queued result survives the previous clear");
+
+    await page.route(BASE + "/api/clear", (route) => route.fulfill({ status: 503,
+      contentType: "application/json", body: '{"message":"Synthetic clear failure."}' }));
+    await page.click("#clear");
+    await page.waitForFunction(() => document.getElementById("note").textContent.includes("Synthetic clear failure"));
+    const beforeFailedClear = conversionRequests;
+    await page.setInputFiles("#files", path.join(FIX, "song.mp4"));
+    await page.waitForTimeout(200);
+    check(conversionRequests === beforeFailedClear, "failed clear does not release the next upload batch");
+    check(await page.isVisible("#clear") && !(await page.isDisabled("#clear")), "failed clear can be retried");
+    await page.unroute(BASE + "/api/clear");
+    await page.click("#clear");
+    await page.waitForFunction(() => document.querySelectorAll("#list li.ok").length === 1);
+    check((await page.textContent("#list li .name")) === "song.mp3", "successful retry preserves the queued file");
+    await page.route(BASE + "/api/clear", (route) => route.abort("failed"));
+    await page.click("#clear");
+    await page.waitForFunction(() => document.getElementById("note").textContent.includes("Press Clear list to retry"));
+    const beforeDisconnectedClear = conversionRequests;
+    await page.setInputFiles("#files", path.join(FIX, "song.mp4"));
+    await page.waitForTimeout(200);
+    check(conversionRequests === beforeDisconnectedClear, "disconnected clear keeps new uploads queued");
+    await page.unroute(BASE + "/api/clear");
+    await page.click("#clear");
+    await page.waitForFunction(() => document.querySelectorAll("#list li.ok").length === 1);
+    check((await page.textContent("#list li .name")) === "song.mp3", "disconnected clear retry preserves the queued file");
+    await page.click("#clear");
+    await page.waitForFunction(() => document.getElementById("actions").hidden);
 
     await page.evaluate((data) => {
       const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
@@ -157,6 +213,7 @@ async function waitForServer(server) {
     check(await page.locator("#list li").count() === 50, "browser batch count is bounded");
     check((await page.textContent("#note")).includes("50 files"), "batch cap is explained");
     await page.click("#clear");
+    await page.waitForFunction(() => document.getElementById("actions").hidden);
     check(!(await page.isVisible("#note")), "clear removes prior notices");
     const beforeOversize = conversionRequests;
     await page.evaluate(() => {
@@ -167,6 +224,7 @@ async function waitForServer(server) {
     check((await page.textContent("#list li .state")).includes("Too large"), "oversize is explained before upload");
     check(conversionRequests === beforeOversize, "oversize bytes are never uploaded");
     await page.click("#clear");
+    await page.waitForFunction(() => document.getElementById("actions").hidden);
 
     await page.setViewportSize({ width: 390, height: 760 });
     await page.screenshot({ path: path.join(OUT, "mp4-mobile.png"), fullPage: true });

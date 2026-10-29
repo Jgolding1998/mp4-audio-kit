@@ -40,6 +40,15 @@ def media(tmp_path_factory):
     _ffmpeg("-f", "lavfi", "-i", "color=c=red:s=160x120:r=10:d=2", "-c:v", "mpeg4", str(d / "silent.mp4"))
     _ffmpeg("-f", "lavfi", "-i", "sine=frequency=440:duration=2", "-c:a", "libvorbis", str(d / "audio.webm"))
     _ffmpeg("-f", "lavfi", "-i", "sine=frequency=440:duration=2", "-c:a", "libmp3lame", str(d / "audio.mp3"))
+    # Audio-only AAC at 44.1 kHz: track timescale is 1/44100, so setts offsets below are in samples.
+    _ffmpeg("-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100:duration=6", "-ac", "1",
+            "-c:a", "aac", str(d / "plain.mp4"))
+    _ffmpeg("-i", str(d / "plain.mp4"), "-c", "copy", "-bsf:a", "setts=ts='if(gt(N,100),PTS+176400,PTS)'",
+            str(d / "gap.mp4"))
+    _ffmpeg("-i", str(d / "plain.mp4"), "-c", "copy", "-bsf:a", "setts=ts='if(gt(N,100),PTS+1270080000,PTS)'",
+            str(d / "jump.mp4"))
+    _ffmpeg("-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100:duration=50", "-ac", "1",
+            "-c:a", "aac", "-b:a", "24k", str(d / "lowrate.mp4"))
     data = (d / "tone.mp4").read_bytes()
     (d / "truncated.mp4").write_bytes(data[: len(data) // 3])
     (d / "notes.mp4").write_bytes(b"just some text, not a video\n" * 10)
