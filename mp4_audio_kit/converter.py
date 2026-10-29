@@ -49,7 +49,23 @@ class Tools:
 
 
 def find_tools() -> Optional[Tools]:
-    ffmpeg, ffprobe = shutil.which("ffmpeg"), shutil.which("ffprobe")
+    def which(name: str) -> Optional[str]:
+        cwd = os.path.normcase(os.path.abspath(os.getcwd()))
+        for entry in os.environ.get("PATH", os.defpath).split(os.pathsep):
+            if not entry or not os.path.isabs(entry):
+                continue
+            directory = os.path.abspath(entry)
+            if os.path.normcase(directory) == cwd:
+                continue
+            candidate = Path(directory) / (name + ".exe" if os.name == "nt" else name)
+            try:
+                if candidate.is_file() and os.access(candidate, os.X_OK):
+                    return str(candidate.resolve())
+            except OSError:
+                continue
+        return None
+
+    ffmpeg, ffprobe = which("ffmpeg"), which("ffprobe")
     if not ffmpeg or not ffprobe:
         return None
     return Tools((str(Path(ffmpeg).resolve()),), (str(Path(ffprobe).resolve()),))
@@ -148,7 +164,8 @@ def output_bound(limits: Limits) -> int:
 
 
 def conversion_reservation(length: int, limits: Limits) -> int:
-    return length + output_bound(limits) + 64 * 1024
+    # The multipart spool and our input file overlap while the upload is copied.
+    return 2 * length + output_bound(limits) + 64 * 1024
 
 
 def _probe(tools: Tools, path: Path, limits: Limits, cancel, forced=True) -> dict:

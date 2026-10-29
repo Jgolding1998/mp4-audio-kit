@@ -163,6 +163,8 @@ def create_app(*, port: int, tools: Tools, limits: Limits | None = None, root: P
             finally:
                 with anyio.CancelScope(shield=True):
                     await form.close()
+                store.release(length)
+                reservation -= length
 
             def work():
                 with contextlib.ExitStack() as stack:

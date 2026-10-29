@@ -50,7 +50,7 @@ Options (all optional):
 ## What you get
 
 - One MP3 per video: the first audio track, MP3 (LAME) targeting 192 kbit/s constant bitrate. FFmpeg selects a lower bitrate for low sample rates. More than two channels are mixed down to stereo.
-- Gaps in the audio timestamps become silence, including a selected audio track that starts after the video. Timing is relative to the file's start; a whole-file timestamp offset is not extra silence. Leading silence counts toward the duration limit. An MP3 can be larger than its input; `--max-mb` limits uploads, while output space is reserved from the duration limit and fixed bitrate.
+- Gaps in the audio timestamps become silence, including a selected audio track that starts after the video. Timing is relative to the file's start; a whole-file timestamp offset is not extra silence. Leading silence counts toward the duration limit. An MP3 can be larger than its input; `--max-mb` limits uploads, while output space is reserved from the duration limit and fixed bitrate. The disk reservation also covers the temporary overlap between the upload spool and its input copy.
 - No tags: titles, artist, chapters and other metadata are not copied, and no ID3 tag is written.
 - Download names come from the original file name, made safe. In a ZIP, repeated names become `name (2).mp3`, `name (3).mp3` and so on.
 - Files that fail (not an MP4, damaged, no audio, too large, too long) show a short reason. Other files in the same batch carry on.
