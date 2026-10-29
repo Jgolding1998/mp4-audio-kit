@@ -6,6 +6,7 @@ import json
 import os
 import secrets
 import shutil
+import tempfile
 import threading
 import time
 import zipfile
@@ -51,6 +52,21 @@ def find_tools() -> Optional[Tools]:
     if not ffmpeg or not ffprobe:
         return None
     return Tools((str(Path(ffmpeg).resolve()),), (str(Path(ffprobe).resolve()),))
+
+
+def tools_ready(tools: Tools) -> bool:
+    """Check the installed executables under the same one-tool process limit."""
+    try:
+        with tempfile.TemporaryDirectory(prefix="mp4-audio-kit-tools-") as folder:
+            work = Path(folder)
+            for command, name in ((tools.ffprobe, b"ffprobe version "), (tools.ffmpeg, b"ffmpeg version ")):
+                result = run_bounded([*command, "-version"], cwd=folder, env=child_env(work),
+                                     timeout=5, memory_bytes=Limits().memory_bytes, max_processes=1)
+                if result.stopped or result.returncode != 0 or not result.stdout.startswith(name):
+                    return False
+        return True
+    except Exception:
+        return False
 
 
 class ConvertError(Exception):

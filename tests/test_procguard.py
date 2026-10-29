@@ -41,6 +41,23 @@ def test_captures_output_and_exit(tmp_path):
     assert r.returncode == 3 and r.stdout.strip() == b"hi" and r.stderr == b"err" and r.stopped is None
 
 
+def test_running_child_uses_an_interruptible_completion_wait(tmp_path, monkeypatch):
+    from mp4_audio_kit import procguard
+
+    waits = []
+    original = procguard.subprocess.Popen.wait
+
+    def observed(proc, timeout=None):
+        waits.append(timeout)
+        return original(proc, timeout=timeout)
+
+    monkeypatch.setattr(procguard.subprocess.Popen, "wait", observed)
+    r = run_bounded(PY + ["import time; time.sleep(.15); print('complete')"],
+                    cwd=str(tmp_path), env=env(), timeout=10)
+    assert r.returncode == 0 and r.stdout.strip() == b"complete" and r.stopped is None
+    assert any(wait is not None and 0 <= wait <= procguard.POLL_SECONDS for wait in waits)
+
+
 def test_timeout_kills(tmp_path):
     start = time.monotonic()
     r = run_bounded(PY + ["import time; time.sleep(60)"], cwd=str(tmp_path), env=env(), timeout=1)

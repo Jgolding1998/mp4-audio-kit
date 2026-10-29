@@ -244,7 +244,10 @@ def run_bounded(
             if stopped:
                 _kill_tree(proc, job)
                 break
-            time.sleep(POLL_SECONDS)
+            try:
+                proc.wait(timeout=max(0, min(POLL_SECONDS, deadline - time.monotonic())))
+            except subprocess.TimeoutExpired:
+                pass
         try:
             proc.wait(timeout=10)
         except subprocess.TimeoutExpired:

@@ -10,7 +10,7 @@ import webbrowser
 import uvicorn
 
 from .app import create_app
-from .converter import Limits, find_tools
+from .converter import Limits, find_tools, tools_ready
 
 
 def main() -> None:
@@ -26,6 +26,9 @@ def main() -> None:
     tools = find_tools()
     if tools is None:
         sys.exit("ffmpeg and ffprobe were not found on PATH. Install FFmpeg first (see README).")
+    if not tools_ready(tools):
+        sys.exit("FFmpeg startup check failed. Check your installation and put the actual FFmpeg bin folder "
+                 "on PATH, ahead of any launcher shims, and try again (see README).")
     limits = Limits(max_file_bytes=args.max_mb * 1024 * 1024, max_duration=args.max_minutes * 60,
                     max_disk_bytes=max(Limits().max_disk_bytes, 4 * args.max_mb * 1024 * 1024))
     app = create_app(port=args.port, tools=tools, limits=limits)

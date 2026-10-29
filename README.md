@@ -12,6 +12,8 @@ Conversion is done by [FFmpeg](https://ffmpeg.org/) on your machine.
   - macOS: `brew install ffmpeg`
   - Debian or Ubuntu: `sudo apt install ffmpeg`
 
+The app checks that both executables can run within its process limits before opening the page. On Windows, launcher shims such as those used by Chocolatey or Scoop may need an extra process and fail this check. Put the actual FFmpeg `bin` folder ahead of the shim folder on the `PATH` used to start the app. A failed startup check reports this setup problem before any files are uploaded.
+
 ## Start
 
 Windows (PowerShell):
@@ -47,7 +49,7 @@ Options (all optional):
 
 ## What you get
 
-- One MP3 per video: the first audio track, MP3 (LAME) at 192 kbit/s constant bitrate. More than two channels are mixed down to stereo.
+- One MP3 per video: the first audio track, MP3 (LAME) targeting 192 kbit/s constant bitrate. FFmpeg selects a lower bitrate for low sample rates. More than two channels are mixed down to stereo.
 - Gaps in the audio timestamps become silence, so recordings keep their timing. An MP3 can be larger than its input; `--max-mb` limits uploads, while output space is reserved from the duration limit and fixed bitrate.
 - No tags: titles, artist, chapters and other metadata are not copied, and no ID3 tag is written.
 - Download names come from the original file name, made safe. In a ZIP, repeated names become `name (2).mp3`, `name (3).mp3` and so on.

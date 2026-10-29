@@ -77,7 +77,7 @@ def create_app(*, port: int, tools: Tools, limits: Limits | None = None, root: P
 
     static_dir = resources.files(__package__) / "static"
     limits_line = (f"Up to {_size_text(limits.max_file_bytes)} and "
-                   f"{limits.max_duration // 60} minutes per file. MP3 at 192 kbps, metadata removed.")
+                   f"{limits.max_duration // 60} minutes per file. MP3 up to 192 kbps, metadata removed.")
     index_html = ((static_dir / "index.html").read_text("utf-8")
                   .replace("{{CSRF}}", token).replace("{{LIMITS}}", limits_line)
                   .replace("{{MAX_BYTES}}", str(limits.max_file_bytes)))
