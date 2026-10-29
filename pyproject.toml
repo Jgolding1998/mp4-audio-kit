@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools==84.2.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mp4-audio-kit"
+version = "0.1.0"
+description = "Local web app that converts MP4 videos to MP3 audio with FFmpeg."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+dependencies = [
+    "starlette==1.10.0",
+    "uvicorn==0.54.0",
+    "python-multipart==0.0.32",
+]
+
+[project.scripts]
+mp4-audio-kit = "mp4_audio_kit.__main__:main"
+
+[tool.setuptools]
+packages = ["mp4_audio_kit"]
+
+[tool.setuptools.package-data]
+mp4_audio_kit = ["static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-p no:cacheprovider"

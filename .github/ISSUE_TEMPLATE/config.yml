@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Feedback and bug reports
+    url: https://github.com/Jgolding1998/Jgolding1998/issues/new?template=feedback.yml
+    about: Report a reproducible issue using synthetic details. Do not include private files or information.

@@ -1,0 +1,20 @@
+# Virtual environments and caches
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+node_modules/
+
+# Runtime output and local scratch
+work/
+runtime/
+*.part
+*.log
+*.mp3
+*.mp4
+*.zip

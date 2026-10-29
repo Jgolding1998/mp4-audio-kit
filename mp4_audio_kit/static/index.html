@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="csrf-token" content="{{CSRF}}">
+<meta name="max-bytes" content="{{MAX_BYTES}}">
+<title>MP4 to MP3</title>
+<link rel="stylesheet" href="/style.css">
+<script src="/app.js" defer></script>
+</head>
+<body>
+<main>
+  <h1>MP4 to MP3</h1>
+  <p class="lead">Turn MP4 videos into MP3 audio, right on this computer.</p>
+  <div id="drop" class="drop">
+    <p class="drop-title">Drop MP4 files here</p>
+    <p class="drop-or">or</p>
+    <button id="pick" type="button">Choose files</button>
+    <input id="files" type="file" accept=".mp4,.m4v,video/mp4" multiple hidden>
+  </div>
+  <ul id="list" class="list" aria-live="polite"></ul>
+  <div id="actions" class="actions" hidden>
+    <button id="zip" type="button" hidden>Download all (ZIP)</button>
+    <button id="clear" type="button" class="link">Clear list</button>
+  </div>
+  <p id="note" class="note" role="status" hidden></p>
+  <p class="limits">{{LIMITS}}</p>
+  <details>
+    <summary>How it works</summary>
+    <ul>
+      <li>Files stay on this computer. Results expire after 30 minutes; cleanup checks run every minute. Clear list cancels pending work and retires saved results. Existing downloads finish before deletion.</li>
+      <li>Stop the app's terminal process to exit and remove results. Closing this browser tab leaves the server running.</li>
+      <li>The first audio track of each video becomes an MP3. Titles and other tags are not copied.</li>
+      <li>Two or more finished files can be saved together as one ZIP.</li>
+    </ul>
+  </details>
+</main>
+<footer><a href="https://github.com/Jgolding1998/Jgolding1998/issues/new?template=feedback.yml" target="_blank" rel="noopener noreferrer">Send feedback</a></footer>
+</body>
+</html>
