@@ -120,6 +120,22 @@ def test_disk_budget(make_client, media):
     client = make_client(max_disk_bytes=10_000)
     r = upload(client, media / "tone.mp4")
     assert r.status_code == 507 and r.json()["error"] == "disk_full"
+    message = r.json()["message"]
+    assert "9 KB working-space budget" in message and "200-file limit" in message
+    assert "disk may still have space" in message and "Download or clear finished files" in message
+    assert str(client.app_state.store.root) not in message
+
+
+def test_limit_messages_name_configured_limits_without_paths():
+    from mp4_audio_kit.converter import Limits, limit_messages
+
+    defaults = limit_messages(Limits())
+    assert "2 GB per-file limit" in defaults["too_large"] and "--max-mb" in defaults["too_large"]
+    assert "360-minute limit" in defaults["too_long"] and "--max-minutes" in defaults["too_long"]
+    assert "8 GB working-space budget" in defaults["disk_full"]
+    custom = limit_messages(Limits(max_file_bytes=300 * 1024 * 1024, max_duration=600))
+    assert "300 MB per-file limit" in custom["too_large"] and "10-minute limit" in custom["too_long"]
+    assert all("/" not in text and "\\" not in text for text in custom.values())
 
 
 def test_too_long_and_timeout(make_client, media):

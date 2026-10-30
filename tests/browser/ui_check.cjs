@@ -221,7 +221,7 @@ async function waitForServer(server) {
       dt.items.add(new File([new Uint8Array(6 * 1024 * 1024)], "oversized.mp4", {type: "video/mp4"}));
       document.getElementById("drop").dispatchEvent(new DragEvent("drop", {dataTransfer: dt, bubbles: true, cancelable: true}));
     });
-    check((await page.textContent("#list li .state")).includes("Too large"), "oversize is explained before upload");
+    check((await page.textContent("#list li .state")).includes("Too large: 6.0 MB, over the 5.0 MB per-file limit"), "oversize names the file size and the limit before upload");
     check(conversionRequests === beforeOversize, "oversize bytes are never uploaded");
     await page.click("#clear");
     await page.waitForFunction(() => document.getElementById("actions").hidden);

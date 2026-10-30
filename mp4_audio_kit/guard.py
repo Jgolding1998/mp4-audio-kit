@@ -34,13 +34,15 @@ async def send_json(send, status: int, code: str, message: str) -> None:
 class LocalGuard:
     """Rejects requests that did not come from this app's own page on loopback."""
 
-    def __init__(self, app, *, port: int, token: str, body_limit: Callable[[str], int]):
+    def __init__(self, app, *, port: int, token: str, body_limit: Callable[[str], int],
+                 limit_message: Callable[[str], str] | None = None):
         self.app = app
         hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
         self.hosts = hosts
         self.origins = {f"http://{h}" for h in hosts}
         self.token = token.encode()
         self.body_limit = body_limit
+        self.limit_message = limit_message or (lambda path: "The request is too large.")
 
     async def __call__(self, scope, receive, send):
         if scope["type"] == "lifespan":
@@ -80,7 +82,7 @@ class LocalGuard:
         else:
             length = int(length_text)
         if length > limit:
-            return await send_json(send, 413, "too_large", "The request is too large.")
+            return await send_json(send, 413, "too_large", self.limit_message(scope["path"]))
 
         received = 0
 

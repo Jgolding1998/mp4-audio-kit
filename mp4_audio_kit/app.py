@@ -21,7 +21,7 @@ from starlette.responses import FileResponse, JSONResponse, Response
 from starlette.routing import Route
 
 from .converter import (MESSAGES, ConvertError, Item, Limits, Store, Tools, check_upload, convert,
-                        conversion_reservation, display_name)
+                        conversion_reservation, display_name, limit_messages, size_text)
 from . import runtime
 from .guard import BodyTooLarge, LocalGuard
 
@@ -33,13 +33,8 @@ _STATUS = {"not_mp4": 415, "too_large": 413, "busy": 503, "disk_full": 507, "not
 MULTIPART_OVERHEAD = 64 * 1024
 
 
-def _size_text(nbytes: int) -> str:
-    gib = nbytes / 1024**3
-    return f"{gib:g} GB" if gib >= 1 else f"{nbytes // (1024 * 1024)} MB"
-
-
-def _error(code: str) -> JSONResponse:
-    return JSONResponse({"error": code, "message": MESSAGES.get(code, MESSAGES["failed"])},
+def _error_response(code: str, messages: dict) -> JSONResponse:
+    return JSONResponse({"error": code, "message": messages.get(code, MESSAGES["failed"])},
                         status_code=_STATUS.get(code, 400))
 
 
@@ -74,9 +69,13 @@ def create_app(*, port: int, tools: Tools, limits: Limits | None = None, root: P
     convert_slots = threading.BoundedSemaphore(limits.max_concurrent)
     uploads = {"active": 0}
     active_cancels = set()
+    messages = limit_messages(limits)
+
+    def _error(code: str) -> JSONResponse:
+        return _error_response(code, messages)
 
     static_dir = resources.files(__package__) / "static"
-    limits_line = (f"Up to {_size_text(limits.max_file_bytes)} and "
+    limits_line = (f"Up to {size_text(limits.max_file_bytes)} and "
                    f"{limits.max_duration // 60} minutes per file. MP3 up to 192 kbps, metadata removed.")
     index_html = ((static_dir / "index.html").read_text("utf-8")
                   .replace("{{CSRF}}", token).replace("{{LIMITS}}", limits_line)
@@ -305,6 +304,9 @@ def create_app(*, port: int, tools: Tools, limits: Limits | None = None, root: P
     def body_limit(path: str) -> int:
         return limits.max_file_bytes + MULTIPART_OVERHEAD if path == "/api/convert" else 16 * 1024
 
-    guarded = LocalGuard(app, port=port, token=token, body_limit=body_limit)
+    def limit_message(path: str) -> str:
+        return messages["too_large"] if path == "/api/convert" else "The request is too large."
+
+    guarded = LocalGuard(app, port=port, token=token, body_limit=body_limit, limit_message=limit_message)
     guarded.state = app.state
     return guarded

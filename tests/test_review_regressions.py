@@ -189,6 +189,28 @@ def test_non_ascii_or_invalid_lengths_have_fixed_400(length):
     assert sent[0]["status"] == 400 and json.loads(sent[1]["body"])["error"] == "bad_length"
 
 
+def test_declared_oversize_names_the_per_file_limit_only_for_uploads(tmp_path):
+    app = create_app(port=PORT, tools=Tools(("unused",), ("unused",)), root=tmp_path / "rt",
+                     limits=Limits(max_file_bytes=1024 * 1024))
+    results = {}
+    for path, length in (("/api/convert", 1024 * 1024 + 64 * 1024 + 1), ("/api/clear", 16 * 1024 + 1)):
+        scope = {"type": "http", "method": "POST", "path": path, "headers": [
+            (b"host", f"127.0.0.1:{PORT}".encode()), (b"origin", BASE.encode()),
+            (b"x-csrf-token", app.state.token.encode()), (b"content-length", str(length).encode())]}
+        sent = []
+
+        async def send(message):
+            sent.append(message)
+
+        anyio.run(lambda: app(scope, None, send))
+        assert sent[0]["status"] == 413
+        results[path] = json.loads(sent[1]["body"])
+    assert results["/api/convert"]["error"] == "too_large"
+    assert "1 MB per-file limit" in results["/api/convert"]["message"] and "--max-mb" in results["/api/convert"]["message"]
+    assert str(tmp_path) not in results["/api/convert"]["message"]
+    assert results["/api/clear"]["message"] == "The request is too large."
+
+
 def test_server_task_cancellation_signals_worker_and_cleans(tmp_path, monkeypatch):
     import mp4_audio_kit.app as module
 

@@ -109,6 +109,27 @@ MESSAGES = {
 }
 
 
+def size_text(nbytes: int) -> str:
+    gib = nbytes / 1024**3
+    if gib >= 1:
+        return f"{gib:g} GB"
+    return f"{nbytes // (1024 * 1024)} MB" if nbytes >= 1024 * 1024 else f"{nbytes // 1024} KB"
+
+
+def limit_messages(limits: Limits) -> dict:
+    """MESSAGES with this run's configured limits filled in. Only numbers from Limits are added."""
+    return {
+        **MESSAGES,
+        "too_large": (f"This file is larger than the {size_text(limits.max_file_bytes)} per-file limit. "
+                      "To allow larger files, restart the app with a higher --max-mb (see README)."),
+        "too_long": (f"This video is longer than the {limits.max_duration // 60}-minute limit. "
+                     "To allow longer videos, restart the app with a higher --max-minutes (see README)."),
+        "disk_full": (f"This would go over the app's {size_text(limits.max_disk_bytes)} working-space budget "
+                      f"or its {limits.max_items}-file limit, which reserve room for uploads and finished results. "
+                      "Your computer's disk may still have space. Download or clear finished files, then try again."),
+    }
+
+
 def child_env(work_dir: Path) -> dict:
     env = {"PATH": os.defpath, "TEMP": str(work_dir), "TMP": str(work_dir), "TMPDIR": str(work_dir),
            "HOME": str(work_dir), "USERPROFILE": str(work_dir)}

@@ -47,6 +47,8 @@ Options (all optional):
 | `--max-mb N` | 2048 | Largest MP4 allowed per file |
 | `--max-minutes N` | 360 | Longest video allowed |
 
+`--max-mb` accepts 1 to 16384 and `--max-minutes` 1 to 1440. The app also keeps a working-space budget of 8 GB (or four times `--max-mb`, whichever is larger) and at most 200 finished files. When a new upload or ZIP would exceed it, the app answers "507" with a message naming that budget. Your disk may still have free space; download or clear finished files to make room.
+
 ## What you get
 
 - One MP3 per video: the first audio track, MP3 (LAME) targeting 192 kbit/s constant bitrate. FFmpeg selects a lower bitrate for low sample rates. More than two channels are mixed down to stereo.

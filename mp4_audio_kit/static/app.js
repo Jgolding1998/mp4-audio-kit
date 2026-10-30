@@ -23,6 +23,7 @@
 
   function size(bytes) {
     if (bytes < 1024 * 1024) return Math.max(1, Math.round(bytes / 1024)) + " KB";
+    if (bytes >= 1024 * 1024 * 1024) return (bytes / (1024 * 1024 * 1024)).toFixed(2) + " GB";
     return (bytes / (1024 * 1024)).toFixed(1) + " MB";
   }
 
@@ -65,7 +66,7 @@
       const entry = { file, row, stateEl, act, state: "", id: null };
       entries.push(entry);
       if (!/\.(mp4|m4v)$/i.test(file.name)) set(entry, "error", "Not an MP4 file.", "bad");
-      else if (file.size > maxBytes) set(entry, "error", "Too large for this app's limit.", "bad");
+      else if (file.size > maxBytes) set(entry, "error", "Too large: " + size(file.size) + ", over the " + size(maxBytes) + " per-file limit. See --max-mb in the README.", "bad");
       else set(entry, "waiting", "Waiting...");
     }
     pump();
