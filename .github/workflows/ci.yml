@@ -2,7 +2,11 @@ name: tests
 
 on:
   push:
+    branches: [main]
   pull_request:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -22,8 +26,37 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
       - name: Install pinned, hash-checked dependencies
         run: >-
-          python -m pip install --require-hashes --only-binary=:all: -r requirements-dev.txt
+          python -m pip install --require-hashes --only-binary=:all: -r requirements-dev.txt -r requirements-tools.txt
       - name: Run tests (real conversions of synthetic media)
         env:
           MAK_REQUIRE_FFMPEG: "1"
         run: python -m pytest -q
+      - name: Audit the complete locked dependency closure
+        run: python tests/audit_lock.py
+  offline:
+    name: Offline safety and installed wheel (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: '3.13'
+      - name: Install the exact wheel-only test and build dependencies
+        run: >-
+          python -m pip install --require-hashes --only-binary=:all: -r requirements-dev.txt -r requirements-tools.txt
+      - name: Exercise process gates, fake conversion and resource admission
+        run: >-
+          python -m pytest -q tests/test_procguard.py tests/test_startup_gate.py
+          tests/test_discovery_budget.py tests/test_maintenance_recovery.py tests/test_tool_setup.py tests/test_audit_lock.py
+          -k "not real_tools_pass_startup_check"
+      - name: Validate a fresh wheel outside the source checkout
+        run: python tests/check_wheel.py
+      - name: Audit the complete locked dependency closure
+        run: python tests/audit_lock.py
